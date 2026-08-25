@@ -91,10 +91,7 @@ export default async function handler(req, res) {
       return res.status(unsubscribeResponse.status).json({
         success: false,
         status: 'UNSUBSCRIBE_FAILED',
-        message:
-          unsubscribeResult?.message ||
-          unsubscribeResult?.error ||
-          'We could not complete your unsubscribe request.',
+        message: 'We could not complete your unsubscribe request.',
       });
     }
 
