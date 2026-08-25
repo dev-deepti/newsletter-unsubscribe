@@ -34,7 +34,8 @@ export default async function handler(req, res) {
     if (!email) {
       return res.status(400).json({
         success: false,
-        message: 'Email is required.',
+        status: 'INVALID_EMAIL',
+        message: 'Please enter your email address.',
       });
     }
 
@@ -45,6 +46,7 @@ export default async function handler(req, res) {
     if (!emailRegex.test(normalizedEmail)) {
       return res.status(400).json({
         success: false,
+        status: 'INVALID_EMAIL',
         message: 'Please provide a valid email address.',
       });
     }
@@ -88,10 +90,11 @@ export default async function handler(req, res) {
     if (!unsubscribeResponse.ok) {
       return res.status(unsubscribeResponse.status).json({
         success: false,
+        status: 'UNSUBSCRIBE_FAILED',
         message:
           unsubscribeResult?.message ||
           unsubscribeResult?.error ||
-          'Unable to unsubscribe this email.',
+          'We could not complete your unsubscribe request.',
       });
     }
 
@@ -132,7 +135,8 @@ export default async function handler(req, res) {
     if (!searchResponse.ok) {
       return res.status(searchResponse.status).json({
         success: false,
-        message: searchResult?.message || 'Unable to find the HubSpot contact.',
+        status: 'CONTACT_SEARCH_FAILED',
+        message: 'We could not verify your contact record.',
       });
     }
 
@@ -147,6 +151,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         success: true,
+        status: 'UNSUBSCRIBED',
         unsubscribed: true,
         contactDeleted: false,
         message: 'Email was unsubscribed, but no HubSpot contact was found.',
@@ -174,17 +179,16 @@ export default async function handler(req, res) {
     );
 
     if (!deleteResponse.ok) {
-      const deleteText =
-        await deleteResponse.text();
+      const deleteText = await deleteResponse.text();
 
       console.error('Contact deletion failed:', deleteResponse.status, deleteText);
 
       return res.status(deleteResponse.status).json({
         success: false,
+        status: 'UNSUBSCRIBED_DELETE_FAILED',
         unsubscribed: true,
         contactDeleted: false,
-        message:
-          'Email was unsubscribed, but the HubSpot contact could not be deleted.',
+        message: 'Email has been unsubscribed from all email communications, but we could not remove the contact record.',
       });
     }
 
@@ -196,10 +200,10 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
+      status: 'UNSUBSCRIBED_AND_DELETED',
       unsubscribed: true,
       contactDeleted: true,
-      message:
-        'Email has been unsubscribed and the HubSpot contact has been deleted.',
+      message: 'Email has been unsubscribed from all email communications and removed from our records.',
     });
 
   } catch (error) {
@@ -210,8 +214,8 @@ export default async function handler(req, res) {
 
     return res.status(500).json({
       success: false,
-      message:
-        'Unable to complete the unsubscribe request.',
+      status: 'SERVER_ERROR',
+      message: 'We couldn’t complete your unsubscribe request. Please try again.',
     });
   }
 }
