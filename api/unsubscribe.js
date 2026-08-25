@@ -43,6 +43,8 @@ export default async function handler(req, res) {
 
     const { email } = req.body || {};
 
+    console.log('Received email:', email);
+
     if (!email) {
       return res.status(400).json({
         success: false,
@@ -71,6 +73,8 @@ export default async function handler(req, res) {
     const hubspotUrl =
       `https://api.hubapi.com/communication-preferences/2026-03/statuses/` +
       `${encodedEmail}/unsubscribe-all?channel=EMAIL&verbose=true`;
+
+    console.log('Calling HubSpot...');
 
     const hubspotResponse = await fetch(hubspotUrl, {
       method: 'POST',
@@ -118,10 +122,7 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error(
-      'Unsubscribe error:',
-      error
-    );
+    console.error('Function error:', error);
 
     return res.status(500).json({
       success: false,
