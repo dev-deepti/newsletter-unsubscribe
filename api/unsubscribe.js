@@ -1,25 +1,120 @@
+const HUBSPOT_API_URL = 'https://api.hubapi.com';
+const UNSUBSCRIBE_API_URL = `${HUBSPOT_API_URL}/communication-preferences/2026-03/statuses`;
+const CONTACTS_API_URL = `${HUBSPOT_API_URL}/crm/v3/objects/contacts`;
+const CONTACTS_SEARCH_API_URL = `${CONTACTS_API_URL}/search`;
+
+/**
+ * Validates and normalizes an email address.
+ * Returns the normalized email or null if invalid.
+ */
+function normalizeEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  return emailRegex.test(normalizedEmail) ? normalizedEmail : null;
+}
+
+/**
+ * Unsubscribes the email from all HubSpot email communications.
+ */
+async function unsubscribeEmail(email, headers) {
+  const encodedEmail = encodeURIComponent(email);
+  const unsubscribeUrl = `${UNSUBSCRIBE_API_URL}/${encodedEmail}/unsubscribe-all?channel=EMAIL&verbose=true`;
+
+  console.log('Unsubscribing:', email);
+
+  const response = await fetch(unsubscribeUrl, {
+    method: 'POST',
+    headers,
+  });
+
+  const result = await response.json();
+
+  console.log('Unsubscribe status:', response.status);
+  console.log('Unsubscribe result:', result);
+
+  return { response, result };
+}
+
+/**
+ * Finds a HubSpot contact using the email address.
+ */
+async function findContact(email, headers) {
+  console.log('Searching HubSpot contact:', email);
+
+  const response = await fetch(CONTACTS_SEARCH_API_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      filterGroups: [
+        {
+          filters: [
+            {
+              propertyName: 'email',
+              operator: 'EQ',
+              value: email,
+            },
+          ],
+        },
+      ],
+      properties: ['email'],
+      limit: 1,
+    }),
+  });
+
+  const result = await response.json();
+
+  console.log('Contact search status:', response.status);
+  console.log('Contact search result:', result);
+
+  return {
+    response,
+    contact: result?.results?.[0] || null,
+  };
+}
+
+/**
+ * Deletes a HubSpot contact by contact ID.
+ */
+async function deleteContact(contactId, headers) {
+  console.log('Deleting HubSpot contact:', contactId);
+
+  const response = await fetch(`${CONTACTS_API_URL}/${contactId}`, {
+    method: 'DELETE',
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('Contact deletion failed:', response.status, error);
+  }
+
+  return response;
+}
+
+/**
+ * Handles unsubscribe requests by validating the email,
+ * unsubscribing it from HubSpot communications, and deleting
+ * the associated HubSpot contact when one exists.
+ */
 export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN?.replace(/\/$/, '');
 
-  // -----------------------------
-  // CORS
-  // -----------------------------
-
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  /* ========== CORS ========== */
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
 
-  // -----------------------------
-  // Only POST
-  // -----------------------------
-
   if (req.method !== 'POST') {
     return res.status(405).json({
       success: false,
+      status: 'METHOD_NOT_ALLOWED',
       message: 'Method not allowed.',
     });
   }
@@ -27,23 +122,10 @@ export default async function handler(req, res) {
   try {
     const { email } = req.body || {};
 
-    // -----------------------------
-    // Validate email
-    // -----------------------------
+    // Validate and normalize email
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        status: 'INVALID_EMAIL',
-        message: 'Please enter your email address.',
-      });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailRegex.test(normalizedEmail)) {
+    if (!normalizedEmail) {
       return res.status(400).json({
         success: false,
         status: 'INVALID_EMAIL',
@@ -51,42 +133,22 @@ export default async function handler(req, res) {
       });
     }
 
+    // HubSpot authentication
     const token = process.env.HUBSPOT_PRIVATE_APP_TOKEN;
 
     if (!token) {
       throw new Error('HUBSPOT_PRIVATE_APP_TOKEN is not configured.');
     }
 
-    const headers = {
+    const hubspotHeaders = {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     };
 
-    // =========================================================
-    // STEP 1: UNSUBSCRIBE FROM ALL EMAIL COMMUNICATIONS
-    // =========================================================
+    /* ========== Unsubscribe from all email communications ========== */
+    const { response: unsubscribeResponse } = await unsubscribeEmail(normalizedEmail, hubspotHeaders);
 
-    const encodedEmail = encodeURIComponent(normalizedEmail);
-
-    const unsubscribeUrl =
-      `https://api.hubapi.com/communication-preferences/2026-03/statuses/` +
-      `${encodedEmail}/unsubscribe-all?channel=EMAIL&verbose=true`;
-
-    console.log('Unsubscribing:', normalizedEmail);
-
-    const unsubscribeResponse = await fetch(
-      unsubscribeUrl,
-      {
-        method: 'POST',
-        headers,
-      }
-    );
-
-    const unsubscribeResult = await unsubscribeResponse.json();
-
-    console.log('Unsubscribe status:', unsubscribeResponse.status);
-    console.log('Unsubscribe result:', unsubscribeResult);
-
+    // Unsubscribe API failed
     if (!unsubscribeResponse.ok) {
       return res.status(unsubscribeResponse.status).json({
         success: false,
@@ -95,40 +157,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // =========================================================
-    // STEP 2: FIND CONTACT BY EMAIL
-    // =========================================================
+    /* ========== Find the HubSpot contact ========== */
+    const { response: searchResponse, contact } = await findContact(normalizedEmail, hubspotHeaders);
 
-    console.log('Searching HubSpot contact:', normalizedEmail);
-
-    const searchResponse = await fetch(
-      'https://api.hubapi.com/crm/v3/objects/contacts/search',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          filterGroups: [
-            {
-              filters: [
-                {
-                  propertyName: 'email',
-                  operator: 'EQ',
-                  value: normalizedEmail,
-                },
-              ],
-            },
-          ],
-          properties: ['email'],
-          limit: 1,
-        }),
-      }
-    );
-
-    const searchResult = await searchResponse.json();
-
-    console.log('Contact search status:', searchResponse.status);
-    console.log('Contact search result:', searchResult);
-
+    // Contact search API failed
     if (!searchResponse.ok) {
       return res.status(searchResponse.status).json({
         success: false,
@@ -137,12 +169,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // =========================================================
-    // STEP 3: CHECK WHETHER CONTACT EXISTS
-    // =========================================================
-
-    const contact = searchResult?.results?.[0];
-
+    // Search succeeded but no contact exists
     if (!contact) {
       console.log('No HubSpot contact found for:', normalizedEmail);
 
@@ -155,31 +182,11 @@ export default async function handler(req, res) {
       });
     }
 
-    const contactId = contact.id;
+    /* ========== Delete the HubSpot contact ========== */
+    const deleteResponse = await deleteContact(contact.id, hubspotHeaders);
 
-    console.log('HubSpot contact found:', contactId);
-
-    // =========================================================
-    // STEP 4: DELETE / ARCHIVE CONTACT
-    // =========================================================
-
-    const deleteUrl = `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`;
-
-    console.log('Deleting HubSpot contact:', contactId);
-
-    const deleteResponse = await fetch(
-      deleteUrl,
-      {
-        method: 'DELETE',
-        headers,
-      }
-    );
-
+    // Contact deletion failed
     if (!deleteResponse.ok) {
-      const deleteText = await deleteResponse.text();
-
-      console.error('Contact deletion failed:', deleteResponse.status, deleteText);
-
       return res.status(deleteResponse.status).json({
         success: false,
         status: 'UNSUBSCRIBED_DELETE_FAILED',
@@ -189,12 +196,7 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log('HubSpot contact deleted:', contactId);
-
-    // =========================================================
-    // STEP 5: FINAL RESPONSE
-    // =========================================================
-
+    /* ========== Both unsubscribe and contact deletion succeeded ========== */
     return res.status(200).json({
       success: true,
       status: 'UNSUBSCRIBED_AND_DELETED',
@@ -202,12 +204,8 @@ export default async function handler(req, res) {
       contactDeleted: true,
       message: 'Email has been unsubscribed from all email communications and removed from our records.',
     });
-
   } catch (error) {
-    console.error(
-      'Unsubscribe function error:',
-      error
-    );
+    console.error('Unsubscribe function error:', error);
 
     return res.status(500).json({
       success: false,
