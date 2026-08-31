@@ -1,7 +1,5 @@
 const HUBSPOT_API_URL = 'https://api.hubapi.com';
 const UNSUBSCRIBE_API_URL = `${HUBSPOT_API_URL}/communication-preferences/2026-03/statuses`;
-const CONTACTS_API_URL = `${HUBSPOT_API_URL}/crm/v3/objects/contacts`;
-const CONTACTS_SEARCH_API_URL = `${CONTACTS_API_URL}/search`;
 
 /**
  * Validates and normalizes an email address.
@@ -36,62 +34,6 @@ async function unsubscribeEmail(email, headers) {
   console.log('Unsubscribe result:', result);
 
   return { response, result };
-}
-
-/**
- * Finds a HubSpot contact using the email address.
- */
-async function findContact(email, headers) {
-  console.log('Searching HubSpot contact:', email);
-
-  const response = await fetch(CONTACTS_SEARCH_API_URL, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      filterGroups: [
-        {
-          filters: [
-            {
-              propertyName: 'email',
-              operator: 'EQ',
-              value: email,
-            },
-          ],
-        },
-      ],
-      properties: ['email'],
-      limit: 1,
-    }),
-  });
-
-  const result = await response.json();
-
-  console.log('Contact search status:', response.status);
-  console.log('Contact search result:', result);
-
-  return {
-    response,
-    contact: result?.results?.[0] || null,
-  };
-}
-
-/**
- * Deletes a HubSpot contact by contact ID.
- */
-async function deleteContact(contactId, headers) {
-  console.log('Deleting HubSpot contact:', contactId);
-
-  const response = await fetch(`${CONTACTS_API_URL}/${contactId}`, {
-    method: 'DELETE',
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    console.error('Contact deletion failed:', response.status, error);
-  }
-
-  return response;
 }
 
 /**
@@ -154,45 +96,6 @@ export default async function handler(req, res) {
         success: false,
         status: 'UNSUBSCRIBE_FAILED',
         message: 'We could not complete your unsubscribe request.',
-      });
-    }
-
-    /* ========== Find the HubSpot contact ========== */
-    const { response: searchResponse, contact } = await findContact(normalizedEmail, hubspotHeaders);
-
-    // Contact search API failed
-    if (!searchResponse.ok) {
-      return res.status(searchResponse.status).json({
-        success: false,
-        status: 'CONTACT_SEARCH_FAILED',
-        message: 'We could not verify your contact record.',
-      });
-    }
-
-    // Search succeeded but no contact exists
-    if (!contact) {
-      console.log('No HubSpot contact found for:', normalizedEmail);
-
-      return res.status(200).json({
-        success: true,
-        status: 'UNSUBSCRIBED',
-        unsubscribed: true,
-        contactDeleted: false,
-        message: 'Email was unsubscribed, but no HubSpot contact was found.',
-      });
-    }
-
-    /* ========== Delete the HubSpot contact ========== */
-    const deleteResponse = await deleteContact(contact.id, hubspotHeaders);
-
-    // Contact deletion failed
-    if (!deleteResponse.ok) {
-      return res.status(deleteResponse.status).json({
-        success: false,
-        status: 'UNSUBSCRIBED_DELETE_FAILED',
-        unsubscribed: true,
-        contactDeleted: false,
-        message: 'Email has been unsubscribed from all email communications, but we could not remove the contact record.',
       });
     }
 
